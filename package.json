@@ -1,0 +1,8 @@
+{
+  "name": "espaco-vida-agenda",
+  "version": "1.0.0",
+  "description": "Agenda de sublocação de salas - Espaço Vida (sem dependências externas)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "test": "node test/run.js" },
+  "engines": { "node": ">=22.5" }
+}
