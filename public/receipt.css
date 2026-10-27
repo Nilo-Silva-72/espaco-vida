@@ -1,0 +1,14 @@
+body { margin: 0; background: #f6f3ec; font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #1c2a27; }
+.receipt { max-width: 480px; margin: 1.5rem auto; background: #fff; border: 1px solid #e3ded2; border-radius: 16px; padding: 1.5rem; box-shadow: 0 4px 14px rgba(28,42,39,.08); }
+header { text-align: center; border-bottom: 1px dashed #cfc9bb; padding-bottom: 1rem; }
+.logo { font-weight: 800; font-size: 1.4rem; color: #165345; }
+.sub { color: #5f6d69; font-size: .9rem; }
+.amount { text-align: center; font-size: 2.2rem; font-weight: 800; margin: 1.2rem 0 .2rem; letter-spacing: -.02em; }
+.status { text-align: center; color: #1d6d42; font-weight: 700; margin-bottom: 1rem; }
+.warn { background: #fbe9e7; color: #b3392f; padding: .6rem; border-radius: 10px; text-align: center; font-weight: 700; }
+dl { display: grid; grid-template-columns: 1fr; gap: .1rem; margin: 0; }
+dt { color: #5f6d69; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; margin-top: .7rem; }
+dd { margin: 0; font-weight: 600; }
+.note { color: #5f6d69; font-size: .8rem; margin-top: 1.2rem; text-align: center; }
+button { display: block; margin: 1rem auto 0; background: #1f6f5c; color: #fff; border: 0; border-radius: 12px; padding: .75rem 1.2rem; font-weight: 700; cursor: pointer; font-size: 1rem; }
+@media print { body { background: #fff; } .receipt { border: 0; box-shadow: none; margin: 0 auto; } button { display: none; } }
