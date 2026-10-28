@@ -66,3 +66,4 @@ table{width:100%;border-collapse:collapse;font-size:.92rem}th{text-align:left;fo
 .price-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--line)}.price-row:last-child{border:0}
 .dayrow{display:grid;grid-template-columns:100px 1fr 54px;gap:10px;align-items:center;margin:8px 0;font-size:.9rem}
 @media(max-width:560px){h1{font-size:1.45rem}.agenda .c{font-size:.78rem;padding:4px 5px}}
+@media print{.topbar,.nav,.noprint,#toast{display:none!important}body{background:#fff}main{padding:0}.card{box-shadow:none;break-inside:avoid}}

@@ -62,16 +62,16 @@ async function render() {
   if (!S.user) return viewAuth(app);
   const r = route(); const admin = S.user.role === 'admin';
   const nav = admin
-    ? [['', 'Painel'], ['agenda', 'Agenda'], ['reservas', 'Reservas'], ['profissionais', 'Profissionais'], ['comprovantes', 'Comprovantes'], ['divulgar', 'Divulgar'], ['config', 'Configurações']].map(([k, l]) => [k ? '/admin/' + k : '/admin', l, k])
+    ? [['', 'Painel'], ['agenda', 'Agenda'], ['reservas', 'Reservas'], ['proximos', 'Próximos'], ['renovacoes', 'Renovações'], ['profissionais', 'Profissionais'], ['comprovantes', 'Comprovantes'], ['divulgar', 'Divulgar'], ['config', 'Configurações']].map(([k, l]) => [k ? '/admin/' + k : '/admin', l, k])
     : [['/', 'Início', ''], ['/agendar', 'Agendar', 'agendar'], ['/reservas', 'Minhas reservas', 'reservas'], ['/perfil', 'Meu perfil', 'perfil']];
   const cur = admin ? (r[0] === 'admin' ? r[1] || '' : null) : r[0] || '';
   if (admin && r[0] !== 'admin') { location.hash = '#/admin'; return; }
   if (!admin && r[0] === 'admin') { location.hash = '#/'; return; }
   app.innerHTML = `<header class="topbar"><div class="brand"><img src="/icon.svg" alt="">${esc(S.info.space_name)}${admin ? ' <span class="badge" style="background:#ffffff33;color:#fff">Gestão</span>' : ''}</div><button data-act="logout">Sair</button></header>
-  <nav class="nav" aria-label="Menu">${nav.map(([h, l, k]) => `<a href="#${h}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><main id="view"></main>`;
+  <nav class="nav" aria-label="Menu">${nav.map(([h, l, k]) => `<a href="#${h}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><main id="view"></main><p class="muted small center noprint" style="margin:0 0 90px">Versão ${esc(S.info.version)}</p>`;
   const v = $('#view');
   try {
-    if (admin) { const p = r[1] || ''; await ({ '': aDash, agenda: aAgenda, reservas: aBookings, profissionais: aUsers, comprovantes: aNotifs, divulgar: aShare, config: aConfig }[p] || aDash)(v); }
+    if (admin) { const p = r[1] || ''; await ({ '': aDash, agenda: aAgenda, proximos: aUpcoming, renovacoes: aRenewals, reservas: aBookings, profissionais: aUsers, comprovantes: aNotifs, divulgar: aShare, config: aConfig }[p] || aDash)(v); }
     else { const p = r[0] || ''; if (p === 'pagamento') await uPay(v, r[1]); else await ({ '': uHome, agendar: uBook, reservas: uBookings, perfil: uProfile }[p] || uHome)(v); }
   } catch (e) { v.innerHTML = `<div class="alert bad">${esc(e.message)}</div>`; }
 }
@@ -119,7 +119,7 @@ function viewAuth(app) {
       <label>WhatsApp (recebe seus comprovantes)</label><input name="phone" data-mask="phone" inputmode="tel" required placeholder="(11) 99999-9999"><label>CPF</label><input name="cpf" data-mask="cpf" inputmode="numeric" required placeholder="000.000.000-00">
       <label>Especialidade / área de atuação</label><input name="specialty" required placeholder="Ex.: Psicologia, Nutrição, Pilates…"><label>Registro profissional (opcional)</label><input name="registry" placeholder="Ex.: CRP 06/12345">
       <label>Senha (mínimo 8 caracteres)</label><input name="password" type="password" minlength="8" required autocomplete="new-password"><button class="btn block" style="margin-top:18px">Criar perfil e entrar</button></form>`}
-    <p class="muted small center">Funcionamento: ${hoursSummary(S.info.hours)}</p></div>`;
+    <p class="muted small center">Funcionamento: ${hoursSummary(S.info.hours)}</p><p class="muted small center">Versão ${esc(S.info.version)}</p></div>`;
     applyMasks(app); app.querySelectorAll('[data-t]').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.t; draw(); }));
     $('#f').addEventListener('submit', (ev) => { ev.preventDefault(); busy(ev.submitter, async () => {
       const r = await api('POST', tab === 'login' ? '/api/auth/login' : '/api/auth/register', formData(ev.target)); S.user = r.user; location.hash = '#/'; render(); }); });
@@ -136,11 +136,12 @@ const slotLabel = (s) => `${WD[wdOf(s.slice(0, 10))]} ${brDate(s.slice(0, 10)).s
 function bookingCard(b, { admin } = {}) {
   const n = b.status === 'paid' ? nextSlot(b) : null;
   return `<div class="card flat" style="margin:0 0 12px"><div class="row between"><div><b>${esc(b.title)}</b><div class="muted small">${esc(b.room)} · ${esc(b.detail)}</div>${n ? `<div class="small" style="margin-top:4px">Próximo: <b>${slotLabel(n)}</b></div>` : ''}</div><div class="right">${badge(b)}<div><b>${b.amount_cents ? brl(b.amount_cents) : ''}</b></div></div></div>
-  <div class="row" style="margin-top:10px">${b.status === 'pending' ? `<a class="btn sm" href="#/pagamento/${b.id}">Pagar agora</a>` : ''}${b.receipt_code && b.status !== 'expired' ? `<a class="btn sm ghost" target="_blank" href="/r/${b.receipt_code}">Comprovante</a>` : ''}
+  <div class="row" style="margin-top:10px">${b.status === 'pending' ? `<a class="btn sm" href="#/pagamento/${b.id}">Pagar agora</a>` : ''}${b.renew ? `<button class="btn sm gold" data-renew="${b.id}">Renovar para ${esc(b.renew.label)}</button>` : ''}${b.receipt_code && b.status !== 'expired' ? `<a class="btn sm ghost" target="_blank" href="/r/${b.receipt_code}">Comprovante</a>` : ''}
   ${['pending', 'paid'].includes(b.status) && b.type !== 'bloqueio' ? `<button class="btn sm ghost" data-cancel="${b.id}" data-paid="${b.status === 'paid'}">Cancelar</button>` : ''}${b.refund_status === 'solicitado' ? '<span class="badge pending">Reembolso em análise</span>' : b.refund_status === 'concluido' ? '<span class="badge">Reembolsado</span>' : ''}</div></div>`;
 }
 function bindCancel(root, after) {
   root.addEventListener('click', (e) => {
+    const rn = e.target.closest('[data-renew]'); if (rn) return busy(rn, async () => { const { booking } = await api('POST', `/api/bookings/${rn.dataset.renew}/renew`, {}); location.hash = `#/pagamento/${booking.id}`; });
     const b = e.target.closest('[data-cancel]'); if (!b) return; const paid = b.dataset.paid === 'true';
     modal(`<h3>Cancelar reserva?</h3><p class="muted">${paid ? `Reservas pagas podem ser canceladas até ${S.info.rules.cancel_hours}h antes do primeiro horário. O reembolso é feito pela administração.` : 'O horário será liberado para outras pessoas.'}</p><div class="row" style="margin-top:14px"><button class="btn danger grow" id="yes">Sim, cancelar</button><button class="btn ghost grow" data-close>Voltar</button></div>`,
       (m, close) => $('#yes', m).addEventListener('click', (ev) => busy(ev.target, async () => { await api('POST', `/api/bookings/${b.dataset.cancel}/cancel`, {}); close(); toast('Reserva cancelada.'); after(); })));
@@ -149,8 +150,10 @@ function bindCancel(root, after) {
 async function uHome(v) {
   const { bookings } = await api('GET', '/api/bookings'); const up = bookings.filter((b) => b.status === 'paid' && nextSlot(b)).sort((a, b) => nextSlot(a).localeCompare(nextSlot(b)));
   const pend = bookings.filter((b) => b.status === 'pending'); const p = S.info.prices;
+  const rd = S.info.rules.renewal_day; const day = +S.info.today.slice(8); const ren = bookings.filter((b) => b.renew);
+  const renBanner = ren.length && day >= rd - S.info.rules.reminder_days ? `<div class="alert"><b>Hora de renovar seu módulo!</b> ${day < rd ? `Renove até o dia ${rd} para garantir o mesmo dia e horário em ${esc(ren[0].renew.label)}. Depois dessa data o horário pode ser ocupado por outro profissional.` : `O prazo de prioridade (dia ${rd}) já passou. Renove o quanto antes para não perder o horário.`}</div>` : '';
   v.innerHTML = `<div class="hero"><h1>Olá, ${esc(S.user.name.split(' ')[0])}!</h1><p>Reserve sua sala em poucos toques. Pagou, está confirmado — e o comprovante chega no seu WhatsApp.</p><a class="btn gold" href="#/agendar" style="margin-top:8px">Agendar horário</a></div>
-  ${pend.length ? `<div class="alert">Você tem ${pend.length} reserva(s) aguardando pagamento. O horário só fica garantido após o pagamento.</div>${pend.map((b) => bookingCard(b)).join('')}` : ''}
+  ${renBanner}${pend.length ? `<div class="alert">Você tem ${pend.length} reserva(s) aguardando pagamento. O horário só fica garantido após o pagamento.</div>${pend.map((b) => bookingCard(b)).join('')}` : ''}
   <h2>Próximos atendimentos</h2>${up.length ? up.slice(0, 6).map((b) => bookingCard(b)).join('') : '<div class="card flat muted">Você ainda não tem horários reservados.</div>'}
   <div class="card"><h3>Valores</h3><div class="price-row"><span>Hora avulsa</span><b>${brl(p.hour)}</b></div><div class="price-row"><span>Módulo 4 horas (1 dia/semana, por mês)</span><b>${brl(p.mod4)}</b></div><div class="price-row"><span>Módulo 8 horas (1 dia/semana, por mês)</span><b>${brl(p.mod8)}</b></div><p class="muted small">Funcionamento: ${hoursSummary(S.info.hours)}</p></div>`;
   bindCancel(v, render);
@@ -176,7 +179,7 @@ async function uBook(v) {
   const w = S.wz || (S.wz = { type: null, room_id: rooms[0].id, cart: [], date: null, month: null, weekday: null, start: null, opts: null });
   if (!rooms.find((r) => r.id === w.room_id)) w.room_id = rooms[0].id;
   const p = S.info.prices; const today = S.info.today;
-  const months = [0, 1, 2].map((i) => { const [y, m] = today.slice(0, 7).split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + i, 1)); return d.toISOString().slice(0, 7); });
+  const months = [0, 1].map((i) => { const [y, m] = today.slice(0, 7).split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + i, 1)); return d.toISOString().slice(0, 7); });
   async function draw() {
     let body = '', bar = '';
     if (w.type === 'avulsa') {
@@ -195,7 +198,7 @@ async function uBook(v) {
       body = `<h3>Mês</h3><div class="chips">${months.map((m) => `<button class="chip ${m === w.month ? 'on' : ''}" data-month="${m}"><b>${MON[+m.slice(5) - 1]}</b><small>${m.slice(0, 4)}</small></button>`).join('')}</div>
       <h3>Dia fixo da semana</h3><div class="chips">${[1, 2, 3, 4, 5, 6].map((d) => `<button class="chip ${d === w.weekday ? 'on' : ''}" data-wd="${d}" ${(w.opts.data[d] || []).length ? '' : 'disabled'}><small>${WD[d]}</small><b>${WDF[d].slice(0, 3)}</b></button>`).join('')}</div>
       ${w.weekday ? `<h3 style="margin-top:8px">Início do módulo (${len} horas seguidas)</h3>${starts.length ? `<div class="hours">${starts.map((h) => `<button class="hour ${h === w.start ? 'on' : ''}" data-start="${h}">${hh(h)}–${hh(h + len)}</button>`).join('')}</div>` : '<p class="muted">Nenhum bloco livre neste dia.</p>'}` : ''}
-      <p class="muted small">O módulo vale para o mesmo dia e horário em todas as semanas do mês. Valor mensal: ${brl(w.type === 'mod4' ? p.mod4 : p.mod8)}.</p>`;
+      ${+today.slice(8) < S.info.rules.renewal_day ? `<p class="muted small">Até o dia ${S.info.rules.renewal_day}, os horários do mês seguinte que já pertencem a módulos atuais ficam reservados para a renovação de quem os tem.</p>` : ''}<p class="muted small">O módulo vale para o mesmo dia e horário em todas as semanas do mês. Valor mensal: ${brl(w.type === 'mod4' ? p.mod4 : p.mod8)}.</p>`;
       if (w.start != null && w.weekday) bar = `<div class="sticky"><div class="in"><div class="grow"><b>${WDF[w.weekday]} ${hh(w.start)}–${hh(w.start + len)}</b><div class="muted small">${monthLabel(w.month)}</div></div><button class="btn" data-go>Continuar</button></div></div>`;
     }
     v.innerHTML = `<h1>Agendar</h1>${rooms.length > 1 ? `<label>Sala</label><select id="room">${rooms.map((r) => `<option value="${r.id}" ${r.id === w.room_id ? 'selected' : ''}>${esc(r.name)}${r.description ? ' – ' + esc(r.description) : ''}</option>`).join('')}</select>` : ''}
@@ -266,13 +269,18 @@ async function aDash(v) {
   if (d.wa_mode !== 'cloud') alerts.push(['', '<b>WhatsApp automático desligado.</b> Os comprovantes são registrados, mas não enviados sozinhos. Você pode enviá-los manualmente em <a href="#/admin/comprovantes">Comprovantes</a> ou ativar a API em Configurações.']);
   if (!d.admin_whatsapp) alerts.push(['bad', 'Informe o WhatsApp da administração em <a href="#/admin/config">Configurações</a> para receber os comprovantes.']);
   if (d.failed_msgs) alerts.push(['bad', `${d.failed_msgs} mensagem(ns) de WhatsApp falharam. <a href="#/admin/comprovantes">Reenviar</a>`]);
+  if (d.renewals_pending) alerts.push(['', `${d.renewals_pending} módulo(s) ainda sem renovação para o próximo mês. <a href="#/admin/renovacoes">Ver renovações</a>`]);
+  if (!d.telegram) alerts.push(['', 'Quer ser avisada no celular a cada reserva paga? Ative o <b>aviso no Telegram</b> (grátis) em <a href="#/admin/config">Configurações</a>.']);
   if (d.refunds) alerts.push(['', `${d.refunds} reembolso(s) para fazer. <a href="#/admin/reservas">Ver reservas</a>`]);
   v.innerHTML = `<h1>Painel</h1>${alerts.map(([c, t]) => `<div class="alert ${c}">${t}</div>`).join('')}
   <div class="grid g3"><div class="card stat"><div class="l">Recebido em ${monthLabel(d.month)}</div><div class="n">${brl(d.revenue)}</div></div><div class="card stat"><div class="l">Reservas pagas no mês</div><div class="n">${d.paid}</div></div><div class="card stat"><div class="l">Aguardando pagamento</div><div class="n">${d.pending}</div></div><div class="card stat"><div class="l">Profissionais ativos</div><div class="n">${d.users}</div></div></div>
   <div class="grid g2"><div class="card"><h3>Hoje, ${brDate(S.info.today)}</h3><div id="today" class="list"></div></div>
+  <div class="card"><h3>Amanhã, ${brDate(addDays(S.info.today, 1))}</h3><div id="tomorrow" class="list"></div></div></div><div class="grid g2">
   <div class="card"><h3>Ocupação dos próximos 7 dias</h3>${d.capacity.map((c) => `<div class="dayrow"><span>${WD[wdOf(c.date)]} ${brDate(c.date).slice(0, 5)}</span><div class="bar"><i style="width:${c.total ? Math.round((100 * c.used) / c.total) : 0}%"></i></div><span class="muted small">${c.total ? Math.round((100 * c.used) / c.total) + '%' : 'fechado'}</span></div>`).join('')}</div></div>`;
   const ag = await api('GET', `/api/admin/agenda?date=${S.info.today}`); const rooms = Object.fromEntries(ag.rooms.map((r) => [r.id, r.name]));
   const rows = ag.slots.filter((s) => s.status === 'paid').sort((a, b) => a.hour - b.hour);
+  const ag2 = await api('GET', `/api/admin/agenda?date=${addDays(S.info.today, 1)}`); const rows2 = ag2.slots.filter((s) => s.status === 'paid').sort((a, b) => a.hour - b.hour);
+  $('#tomorrow').innerHTML = rows2.length ? rows2.map((s) => `<div class="row between"><span><b>${hh(s.hour)}</b> · ${esc(rooms[s.room_id])}</span><span>${esc(s.user_name)}${s.type === 'bloqueio' ? ' (bloqueio)' : ''}</span></div>`).join('') : '<p class="muted">Nenhum atendimento amanhã.</p>';
   $('#today').innerHTML = rows.length ? rows.map((s) => `<div class="row between"><span><b>${hh(s.hour)}</b> · ${esc(rooms[s.room_id])}</span><span>${esc(s.user_name)}${s.type === 'bloqueio' ? ' (bloqueio)' : ''}</span></div>`).join('') : '<p class="muted">Nenhum atendimento hoje.</p>';
 }
 async function aAgenda(v) {
@@ -338,11 +346,29 @@ async function aUsers(v) {
   });
   await draw();
 }
+async function aUpcoming(v) {
+  let days = 14;
+  async function draw() {
+    const u = await api('GET', `/api/admin/upcoming?days=${days}`);
+    v.innerHTML = `<div class="row between noprint"><h1>Próximos atendimentos</h1><div class="row"><select id="nd" style="width:auto"><option value="7">7 dias</option><option value="14">14 dias</option><option value="30">30 dias</option></select><button class="btn sm ghost" onclick="print()">Imprimir</button></div></div>
+    <p class="muted small">De ${brDate(u.from)} a ${brDate(u.to)} — reservas pagas, para você preparar as salas.</p>
+    ${u.days.length ? u.days.map((d) => `<div class="card"><h3>${WDF[wdOf(d.date)]}, ${brDate(d.date)}</h3><div class="list">${d.items.map((i) => `<div class="row between"><span><b>${hh(i.start)}–${hh(i.end)}</b> · ${esc(i.room)}</span><span>${esc(i.user_name)} <span class="muted small">${esc(i.specialty || '')} · ${esc(i.type === 'avulsa' ? 'avulsa' : i.type === 'mod4' ? 'módulo 4h' : 'módulo 8h')}</span></span></div>`).join('')}</div></div>`).join('') : '<div class="card flat muted">Nenhum atendimento reservado neste período.</div>'}`;
+    $('#nd').value = String(days); $('#nd').addEventListener('change', (e) => { days = +e.target.value; draw().catch(fail); });
+  } await draw();
+}
+async function aRenewals(v) {
+  const r = await api('GET', '/api/admin/renewals'); const nm = monthLabel(r.next);
+  v.innerHTML = `<h1>Renovações de módulos</h1><div class="alert ${r.priority_open ? 'ok' : ''}">${r.priority_open ? `Prioridade de renovação aberta até o dia <b>${r.renewal_day}</b>. Até lá, os horários de ${nm} ligados a módulos atuais só podem ser renovados por quem os tem.` : `O prazo de prioridade (dia ${r.renewal_day}) já passou: horários não renovados estão liberados para todos.`} Os lembretes começam no dia ${r.reminder_from}.</div>
+  <div class="card"><div class="tablewrap"><table><thead><tr><th>Profissional</th><th>Módulo atual</th><th>Renovação (${nm})</th><th></th></tr></thead><tbody>${r.items.map((i) => `<tr><td><b>${esc(i.user_name)}</b><div class="muted small">${esc(i.specialty || '')}<br>${esc(fmtPhone(i.user_phone))}</div></td><td>${esc(i.title)}<div class="muted small">${esc(i.room)}</div></td>
+  <td>${i.renewed ? '<span class="badge">Renovado ✔</span>' : i.awaiting_payment ? '<span class="badge pending">Aguardando pagamento</span>' : '<span class="badge bad">Não renovou</span>'}</td>
+  <td>${i.renewed ? '' : `<a class="btn sm" target="_blank" rel="noopener" href="${waLink(i.user_phone, i.message)}">Lembrar no WhatsApp</a>`}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Nenhum módulo ativo neste mês.</td></tr>'}</tbody></table></div></div>
+  <p class="muted small">O botão abre o WhatsApp com a mensagem pronta; é só tocar em enviar.</p>`;
+}
 async function aNotifs(v) {
   const { notifications } = await api('GET', '/api/admin/notifications');
   const st = { sent: ['Enviado', ''], simulated: ['Registrado (WhatsApp automático desligado)', 'pending'], failed: ['Falhou', 'bad'], pending: ['Na fila', 'pending'] };
-  v.innerHTML = `<h1>Comprovantes enviados</h1><p class="muted">Registro de todas as mensagens geradas após cada pagamento — para o profissional e para a administração.</p><div class="card"><div class="tablewrap"><table><thead><tr><th>Quando</th><th>Para</th><th>Reserva</th><th>Status</th><th></th></tr></thead><tbody>${notifications.map((n) => `<tr><td class="small">${sqlLocal(n.created_at)}</td><td>${n.audience === 'admin' ? 'Administração' : esc(n.user_name || 'Profissional')}<div class="muted small">${esc(fmtPhone(n.to_phone))}</div></td><td>#${n.booking_id || ''}${n.receipt_code ? ` · <a target="_blank" href="/r/${n.receipt_code}">${n.receipt_code}</a>` : ''}</td><td><span class="badge ${(st[n.status] || [])[1] || ''}">${(st[n.status] || [n.status])[0]}</span>${n.error ? `<div class="small" style="color:var(--bad)">${esc(n.error)}</div>` : ''}</td>
-  <td><div class="row" style="gap:6px"><button class="btn sm ghost" data-resend="${n.id}">Reenviar</button><a class="btn sm ghost" target="_blank" rel="noopener" href="${waLink(n.to_phone, n.body)}">Abrir no WhatsApp</a></div></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nada por aqui ainda.</td></tr>'}</tbody></table></div></div>`;
+  v.innerHTML = `<h1>Comprovantes enviados</h1><p class="muted">Registro de todas as mensagens geradas após cada pagamento — para o profissional e para a administração.</p><div class="card"><div class="tablewrap"><table><thead><tr><th>Quando</th><th>Para</th><th>Reserva</th><th>Status</th><th></th></tr></thead><tbody>${notifications.map((n) => `<tr><td class="small">${sqlLocal(n.created_at)}</td><td>${n.audience === 'admin' ? 'Administração' : n.audience === 'telegram' ? 'Telegram (gestão)' : esc(n.user_name || 'Profissional')}<div class="muted small">${esc(fmtPhone(n.to_phone))}</div></td><td>#${n.booking_id || ''}${n.receipt_code ? ` · <a target="_blank" href="/r/${n.receipt_code}">${n.receipt_code}</a>` : ''}</td><td><span class="badge ${(st[n.status] || [])[1] || ''}">${(st[n.status] || [n.status])[0]}</span>${n.error ? `<div class="small" style="color:var(--bad)">${esc(n.error)}</div>` : ''}</td>
+  <td><div class="row" style="gap:6px"><button class="btn sm ghost" data-resend="${n.id}">Reenviar</button>${n.audience === 'telegram' ? '' : `<a class="btn sm ghost" target="_blank" rel="noopener" href="${waLink(n.to_phone, n.body)}">Abrir no WhatsApp</a>`}</div></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nada por aqui ainda.</td></tr>'}</tbody></table></div></div>`;
   v.addEventListener('click', (e) => { const t = e.target.closest('[data-resend]'); if (t) busy(t, async () => { await api('POST', `/api/admin/notifications/${t.dataset.resend}/resend`, {}); toast('Reenvio solicitado.'); render(); }); });
 }
 async function aShare(v) {
@@ -368,6 +394,11 @@ async function aConfig(v) {
   <div class="card"><h2>Valores</h2><div class="grid g3"><div><label>Módulo 4 horas (mês)</label><input name="price_mod4" inputmode="decimal" value="${fromCents(s.price_mod4)}"></div><div><label>Módulo 8 horas (mês)</label><input name="price_mod8" inputmode="decimal" value="${fromCents(s.price_mod8)}"></div><div><label>Hora avulsa</label><input name="price_hour" inputmode="decimal" value="${fromCents(s.price_hour)}"></div></div></div>
   <div class="card"><h2>Regras para o profissional</h2><div class="grid g2"><div><label>Prazo para pagar (minutos)</label><input type="number" name="hold_minutes" value="${s.hold_minutes}"></div><div><label>Antecedência mínima para agendar (horas)</label><input type="number" name="min_notice_hours" value="${s.min_notice_hours}"></div><div><label>Cancelamento de hora avulsa até (horas antes)</label><input type="number" name="cancel_hours" value="${s.cancel_hours}"></div><div><label>Agendar até (dias à frente)</label><input type="number" name="horizon_days" value="${s.horizon_days}"></div><div><label>Máximo de horas avulsas por pedido</label><input type="number" name="max_hours_per_booking" value="${s.max_hours_per_booking}"></div></div>
   <p class="muted small">O profissional só consegue: ver horários livres, reservar, pagar, ver/cancelar as próprias reservas (módulos pagos só a gestão cancela) e editar o próprio perfil.</p></div>
+  <div class="card"><h2>Renovação de módulos</h2><div class="grid g2"><div><label>Prioridade de renovação até o dia</label><input type="number" min="1" max="28" name="renewal_day" value="${s.renewal_day}"></div><div><label>Lembrete começa quantos dias antes</label><input type="number" min="0" max="20" name="reminder_days" value="${s.reminder_days}"></div></div>
+  <p class="muted small">Até esse dia, o mês seguinte fica reservado para quem já tem módulo renovar. Depois dele, horários não renovados são liberados para todos.</p></div>
+  <div class="card"><h2>Aviso no Telegram (grátis)</h2><p class="muted small">Você recebe uma mensagem no celular assim que uma reserva é paga. Passo a passo: no Telegram, procure <b>@BotFather</b>, envie <b>/newbot</b>, escolha um nome e copie o <b>token</b>. Depois abra uma conversa com o seu robô e envie "oi". Para descobrir o ID da conversa, procure <b>@userinfobot</b> e envie "oi": ele responde com o seu <b>Id</b>.</p>
+  <div class="grid g2"><div><label>Token do robô ${s.has_telegram_token ? '<span class="badge">já informado</span>' : ''}</label><input name="telegram_token" type="password" autocomplete="off" placeholder="${s.has_telegram_token ? 'deixe em branco para manter' : '123456:ABC…'}"></div><div><label>ID da conversa</label><input name="telegram_chat_id" value="${esc(s.telegram_chat_id)}" inputmode="numeric" placeholder="123456789"></div></div>
+  <button type="button" class="btn sm ghost" style="margin-top:10px" data-tgtest>Enviar mensagem de teste</button> <span class="muted small">(salve antes de testar)</span></div>
   <div class="card"><h2>Cobrança (Pix e cartão)</h2><label>Provedor</label><select name="payment_provider"><option value="simulado" ${s.payment_provider === 'simulado' ? 'selected' : ''}>Modo de teste (não cobra de verdade)</option><option value="mercadopago" ${s.payment_provider === 'mercadopago' ? 'selected' : ''}>Mercado Pago (Pix + cartão)</option></select>
   <label>Access Token do Mercado Pago ${s.has_mp_access_token ? '<span class="badge">já informado</span>' : ''}</label><input name="mp_access_token" type="password" placeholder="${s.has_mp_access_token ? 'deixe em branco para manter' : 'APP_USR-…'}" autocomplete="off">
   <p class="muted small">No Mercado Pago: Seu negócio &gt; Configurações &gt; Credenciais. No painel de Webhooks, aponte para <b>${esc((s.base_url || 'https://SEU-ENDEREÇO') + '/api/webhooks/mercadopago')}</b> (evento: Pagamentos).</p></div>
@@ -380,10 +411,11 @@ async function aConfig(v) {
   applyMasks(v);
   $('#cf').addEventListener('submit', (ev) => { ev.preventDefault(); busy(ev.submitter, async () => {
     const f = formData(ev.target); const hours = {}; for (let d = 0; d <= 6; d++) hours[d] = $(`[data-open="${d}"]`).checked ? [+$(`[data-from="${d}"]`).value, +$(`[data-to="${d}"]`).value] : null;
-    const body = { ...f, hours, allow_signup: $('[name=allow_signup]').checked, price_mod4: toCents(f.price_mod4), price_mod8: toCents(f.price_mod8), price_hour: toCents(f.price_hour) };
+    const body = { ...f, renewal_day: +f.renewal_day, reminder_days: +f.reminder_days, hours, allow_signup: $('[name=allow_signup]').checked, price_mod4: toCents(f.price_mod4), price_mod8: toCents(f.price_mod8), price_hour: toCents(f.price_hour) };
     ['hold_minutes', 'min_notice_hours', 'cancel_hours', 'horizon_days', 'max_hours_per_booking'].forEach((k) => (body[k] = +body[k]));
     await api('PUT', '/api/admin/settings', body); S.info = await api('GET', '/api/public/info'); toast('Configurações salvas.'); render(); }); });
-  v.addEventListener('click', (e) => { const t = e.target.closest('[data-room]'); if (!t) return; const r = rooms.find((x) => x.id === +t.dataset.room) || {};
+  v.addEventListener('click', (e) => { const tg = e.target.closest('[data-tgtest]'); if (tg) return busy(tg, async () => { await api('POST', '/api/admin/telegram-test', {}); toast('Mensagem enviada! Veja no seu Telegram.'); });
+    const t = e.target.closest('[data-room]'); if (!t) return; const r = rooms.find((x) => x.id === +t.dataset.room) || {};
     modal(`<h2>${r.id ? 'Editar sala' : 'Nova sala'}</h2><form id="rf"><label>Nome</label><input name="name" value="${esc(r.name || '')}" required><label>Descrição (opcional)</label><input name="description" value="${esc(r.description || '')}" placeholder="Ex.: maca, 2 poltronas">
     ${r.id ? `<label>Situação</label><select name="active"><option value="1" ${r.active ? 'selected' : ''}>Ativa</option><option value="0" ${!r.active ? 'selected' : ''}>Inativa (não aparece para agendamento)</option></select>` : ''}<div class="row" style="margin-top:16px"><button class="btn grow">Salvar</button><button type="button" class="btn ghost" data-close>Cancelar</button></div></form>`,
       (m, close) => $('#rf', m).addEventListener('submit', (ev) => { ev.preventDefault(); busy(ev.submitter, async () => { const f = formData(ev.target); if (f.active !== undefined) f.active = f.active === '1';

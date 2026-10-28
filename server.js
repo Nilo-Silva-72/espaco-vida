@@ -10,6 +10,7 @@ const N = require('./lib/notify');
 const { HttpError } = U;
 
 const PUBLIC = path.join(__dirname, 'public');
+const VERSION = require('./package.json').version;
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 
 // ---------- mini roteador ----------
@@ -79,11 +80,11 @@ function insertUser(f, password, role) {
 // ---------- informação pública ----------
 function roomsList(all) { return db.prepare(`SELECT id,name,description,active FROM rooms ${all ? '' : 'WHERE active=1'} ORDER BY id`).all(); }
 on('GET', '/api/public/info', 'none', () => ({
-  setup_needed: !db.prepare("SELECT 1 FROM users WHERE role='admin'").get(),
+  version: VERSION, setup_needed: !db.prepare("SELECT 1 FROM users WHERE role='admin'").get(),
   space_name: setting('space_name'), hours: setting('hours'), rooms: roomsList(false),
   prices: { mod4: setting('price_mod4'), mod8: setting('price_mod8'), hour: setting('price_hour') },
-  rules: { hold_minutes: setting('hold_minutes'), cancel_hours: setting('cancel_hours'), min_notice_hours: setting('min_notice_hours'), horizon_days: setting('horizon_days'), max_hours: setting('max_hours_per_booking') },
-  allow_signup: !!setting('allow_signup'), simulated_payments: P.isSimulated(), today: U.todayStr(),
+  rules: { renewal_day: setting('renewal_day'), reminder_days: setting('reminder_days'), hold_minutes: setting('hold_minutes'), cancel_hours: setting('cancel_hours'), min_notice_hours: setting('min_notice_hours'), horizon_days: setting('horizon_days'), max_hours: setting('max_hours_per_booking') },
+  allow_signup: !!setting('allow_signup'), renewal_day: setting('renewal_day'), simulated_payments: P.isSimulated(), today: U.todayStr(),
 }));
 
 // ---------- configuração inicial (primeiro acesso) ----------
@@ -149,10 +150,10 @@ on('PUT', '/api/me', 'user', (req, res, { user, body }) => {
 });
 
 // ---------- agenda e reservas (profissional) ----------
-on('GET', '/api/availability', 'user', (req, res, { query }) => ({ days: R.availability(query.room_id, query.from, query.to) }));
-on('GET', '/api/module-options', 'user', (req, res, { query }) => ({ options: R.moduleOptions(Number(query.room_id), query.type, query.month) }));
+on('GET', '/api/availability', 'user', (req, res, { user, query }) => ({ days: R.availability(query.room_id, query.from, query.to, user.id) }));
+on('GET', '/api/module-options', 'user', (req, res, { user, query }) => ({ options: R.moduleOptions(Number(query.room_id), query.type, query.month, user.id) }));
 const quoteOut = (q) => ({ type: q.type, amount: q.amount, title: q.title, detail: q.detail, slots: q.slots.length, room: q.room.name });
-on('POST', '/api/bookings/quote', 'user', (req, res, { body }) => ({ quote: quoteOut(R.quote(body)) }));
+on('POST', '/api/bookings/quote', 'user', (req, res, { user, body }) => ({ quote: quoteOut(R.quote(body, user.id)) }));
 on('POST', '/api/bookings', 'user', (req, res, { user, body }) => {
   const mine = db.prepare("SELECT COUNT(*) n FROM bookings WHERE user_id=? AND status='pending'").get(user.id).n;
   if (mine >= 5) throw new HttpError(429, 'Você tem reservas aguardando pagamento. Pague ou cancele antes de criar novas.');
@@ -162,7 +163,7 @@ function bookingOut(b, extra = {}) {
   const room = db.prepare('SELECT name FROM rooms WHERE id=?').get(b.room_id);
   return { id: b.id, type: b.type, type_label: R.TYPE_LABEL[b.type], status: b.status, amount_cents: b.amount_cents, title: b.meta.title, detail: b.meta.detail,
     room: room && room.name, room_id: b.room_id, hold_expires_at: b.hold_expires_at, created_at: b.created_at, paid_at: b.paid_at, pay_method: b.pay_method,
-    receipt_code: b.receipt_code, refund_status: b.refund_status, slots: b.meta.slots, first_date: b.meta.slots[0] && b.meta.slots[0].date, ...extra };
+    receipt_code: b.receipt_code, refund_status: b.refund_status, renew: R.renewInfo(b), slots: b.meta.slots, first_date: b.meta.slots[0] && b.meta.slots[0].date, ...extra };
 }
 function ownBooking(user, id) {
   R.purgeExpired(); const b = R.getBooking(Number(id));
@@ -173,6 +174,11 @@ on('GET', '/api/bookings', 'user', (req, res, { user }) => {
   R.purgeExpired();
   const rows = db.prepare("SELECT * FROM bookings WHERE user_id=? AND type!='bloqueio' ORDER BY id DESC LIMIT 200").all(user.id).map(R.parseBooking);
   return { bookings: rows.map((b) => bookingOut(b)) };
+});
+on('POST', '/api/bookings/:id/renew', 'user', (req, res, { user, params }) => {
+  const mine = db.prepare("SELECT COUNT(*) n FROM bookings WHERE user_id=? AND status='pending'").get(user.id).n;
+  if (mine >= 5) throw new HttpError(429, 'Você tem reservas aguardando pagamento. Pague ou cancele antes de criar novas.');
+  return { booking: bookingOut(R.renewBooking(user.id, Number(params.id))) };
 });
 on('GET', '/api/bookings/:id', 'user', (req, res, { user, params }) => ({ booking: bookingOut(ownBooking(user, params.id)) }));
 on('POST', '/api/bookings/:id/pay', 'user', async (req, res, { user, params, body }) => {
@@ -227,7 +233,7 @@ on('GET', '/r/:code', 'none', (req, res, { params }) => {
 });
 
 // ================== GESTOR ==================
-const SECRET_KEYS = ['mp_access_token', 'wa_token'];
+const SECRET_KEYS = ['mp_access_token', 'wa_token', 'telegram_token'];
 on('GET', '/api/admin/settings', 'admin', () => {
   const s = allSettings(); for (const k of SECRET_KEYS) { s['has_' + k] = !!s[k]; s[k] = ''; } delete s.setup_done; return { settings: s, rooms: roomsList(true) };
 });
@@ -244,6 +250,9 @@ on('PUT', '/api/admin/settings', 'admin', (req, res, { user, body }) => {
     if ('cancel_hours' in body) setSetting('cancel_hours', n(body.cancel_hours, 0, 720, 'prazo de cancelamento'));
     if ('horizon_days' in body) setSetting('horizon_days', n(body.horizon_days, 7, 365, 'dias à frente'));
     if ('max_hours_per_booking' in body) setSetting('max_hours_per_booking', n(body.max_hours_per_booking, 1, 40, 'máx. horas'));
+    if ('renewal_day' in body) setSetting('renewal_day', n(body.renewal_day, 1, 28, 'dia limite de renovação'));
+    if ('reminder_days' in body) setSetting('reminder_days', n(body.reminder_days, 0, 20, 'dias de lembrete'));
+    if ('telegram_chat_id' in body) setSetting('telegram_chat_id', U.clean(body.telegram_chat_id, 40));
     if ('allow_signup' in body) setSetting('allow_signup', !!body.allow_signup);
     if ('admin_whatsapp' in body) { const p = body.admin_whatsapp ? U.normPhone(body.admin_whatsapp) : ''; if (body.admin_whatsapp && !p) throw new HttpError(400, 'WhatsApp da administração inválido.'); setSetting('admin_whatsapp', p || ''); }
     if ('base_url' in body) { const u = U.clean(body.base_url, 200).replace(/\/+$/, ''); if (u && !/^https?:\/\/[^\s]+$/.test(u)) throw new HttpError(400, 'Endereço (URL) inválido.'); setSetting('base_url', u); }
@@ -343,7 +352,35 @@ on('GET', '/api/admin/dashboard', 'admin', () => {
   return { month, revenue: rev.t, paid: rev.n, byType,
     pending: q("SELECT COUNT(*) n FROM bookings WHERE status='pending'"), refunds: q("SELECT COUNT(*) n FROM bookings WHERE refund_status='solicitado' OR status='refund_needed'"),
     users: q("SELECT COUNT(*) n FROM users WHERE role='user' AND active=1"), failed_msgs: q("SELECT COUNT(*) n FROM notifications WHERE status='failed'"),
+    renewals_pending: (() => { const r = R.renewalsList(); return r.day >= r.reminder_from ? r.pending_count : 0; })(), telegram: N.telegramOn(),
     capacity, simulated_payments: P.isSimulated(), wa_mode: setting('wa_provider'), admin_whatsapp: setting('admin_whatsapp') };
+});
+on('GET', '/api/admin/renewals', 'admin', (req) => {
+  const r = R.renewalsList(); const link = P.baseUrl(req) + '/'; const nm = U.monthLabel(r.next); const dl = `${U.pad(r.renewal_day)}/${r.cur.slice(5)}`;
+  r.items = r.items.map((i) => ({ ...i, message: r.priority_open
+    ? `Olá, ${i.user_name.split(' ')[0]}! Aqui é do ${setting('space_name')}. Seu módulo (${i.title}) vai até o fim do mês. Para garantir o mesmo horário em ${nm}, renove até ${dl} pelo aplicativo (botão "Renovar" em Minhas reservas): ${link} Depois dessa data o horário é liberado para outros profissionais.`
+    : `Olá, ${i.user_name.split(' ')[0]}! Aqui é do ${setting('space_name')}. O prazo de prioridade para renovar seu módulo (${i.title}) já passou (${dl}). Se quiser manter o horário em ${nm}, renove o quanto antes pelo aplicativo, antes que outro profissional reserve: ${link}` }));
+  return r;
+});
+on('GET', '/api/admin/upcoming', 'admin', (req, res, { query }) => {
+  R.purgeExpired(); const days = Math.min(60, Math.max(1, Number(query.days) || 14)); const from = U.todayStr(); const to = U.addDays(from, days - 1);
+  const rows = db.prepare(`SELECT s.date, s.hour, s.room_id, b.id booking_id, b.type, b.meta, u.name user_name, u.specialty, u.phone, r.name room
+    FROM slots s JOIN bookings b ON b.id=s.booking_id JOIN users u ON u.id=b.user_id JOIN rooms r ON r.id=s.room_id
+    WHERE s.date>=? AND s.date<=? AND b.status='paid' AND b.type!='bloqueio' ORDER BY s.date, s.hour, r.name`).all(from, to);
+  const byKey = new Map();
+  for (const r of rows) { const k = `${r.date}|${r.booking_id}`; if (!byKey.has(k)) byKey.set(k, { ...r, hours: [] }); byKey.get(k).hours.push(r.hour); }
+  const out = {};
+  for (const g of byKey.values()) {
+    const hs = g.hours.sort((a, b) => a - b); let start = hs[0]; let prev = hs[0]; const runs = [];
+    for (const h of hs.slice(1)) { if (h !== prev + 1) { runs.push([start, prev + 1]); start = h; } prev = h; } runs.push([start, prev + 1]);
+    for (const [s, e] of runs) (out[g.date] ||= []).push({ start: s, end: e, room: g.room, user_name: g.user_name, specialty: g.specialty, phone: g.phone, type: g.type, title: JSON.parse(g.meta).title, booking_id: g.booking_id });
+  }
+  return { days: Object.keys(out).sort().map((d) => ({ date: d, items: out[d].sort((a, b) => a.start - b.start || a.room.localeCompare(b.room)) })), from, to };
+});
+on('POST', '/api/admin/telegram-test', 'admin', async () => {
+  try { await N.sendTelegram('✅ Espaço Vida: o aviso no Telegram está funcionando! Você receberá uma mensagem a cada nova reserva paga.'); }
+  catch (e) { throw new HttpError(400, 'Não foi possível enviar: ' + e.message); }
+  return { ok: true };
 });
 on('GET', '/api/admin/notifications', 'admin', () => ({
   notifications: db.prepare(`SELECT n.*, b.receipt_code, u.name user_name FROM notifications n LEFT JOIN bookings b ON b.id=n.booking_id LEFT JOIN users u ON u.id=b.user_id ORDER BY n.id DESC LIMIT 200`).all(),
@@ -360,7 +397,7 @@ function serveStatic(req, res, pathname) {
   const file = path.join(PUBLIC, rel);
   if (!file.startsWith(PUBLIC + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Não encontrado'); }
   const ext = path.extname(file);
-  res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': ext === '.html' || file.endsWith('sw.js') ? 'no-cache' : 'public, max-age=3600', ...SEC });
+  res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': ['.html', '.js', '.css', '.webmanifest'].includes(ext) ? 'no-cache' : 'public, max-age=86400', ...SEC });
   fs.createReadStream(file).pipe(res);
 }
 const server = http.createServer(async (req, res) => {

@@ -45,3 +45,23 @@ Menu **Divulgar**: link, QR Code e mensagem pronta. No WhatsApp Business use *Me
 
 ## Testes
 `npm test` (regras de negócio, permissões, expiração, conflitos).
+
+## Publicar no Railway
+1. Código num repositório privado do GitHub.
+2. railway.com > *New Project > Deploy from GitHub repo* > escolha o repositório (o `Dockerfile` é detectado sozinho).
+3. No serviço: *Settings > Volumes > Add Volume*, caminho de montagem `/data`. Sem volume, os dados se perdem a cada novo deploy.
+4. *Variables*: `DATA_DIR` = `/data`.
+5. *Settings > Networking > Generate Domain* (ou *Custom Domain*). Copie o endereço gerado.
+6. Abra o endereço, faça o assistente de configuração e informe o endereço público em Configurações.
+
+## Renovação de módulos
+- Cada módulo vale um mês. Em *Minhas reservas* (e na tela inicial) aparece o botão **Renovar para o próximo mês**, que cria a reserva no mesmo dia/horário e abre o pagamento.
+- **Prioridade:** até o dia configurado (padrão 20), os horários do mês seguinte que pertencem a módulos ainda não renovados ficam reservados aos titulares (vale para módulos e horas avulsas). Depois do prazo, se não renovou, o horário é liberado a todos.
+- **Lembrete:** o aviso aparece para o profissional no aplicativo a partir de 7 dias antes do prazo (dia 13). O gestor tem o menu **Renovações**, com quem ainda não renovou e um botão que abre o WhatsApp com a mensagem pronta.
+- Módulos só podem ser reservados para o mês atual e o seguinte.
+
+## Aviso no Telegram (para o gestor)
+Em *Configurações > Aviso no Telegram*: crie um robô com @BotFather, informe o token e o seu ID (@userinfobot), salve e clique em "Enviar mensagem de teste". A cada pagamento aprovado você recebe a reserva no celular.
+
+## Próximos atendimentos
+Menu **Próximos**: lista por dia de todas as reservas pagas (7, 14 ou 30 dias), com botão de imprimir. O Painel mostra também "Hoje" e "Amanhã".
