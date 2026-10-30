@@ -84,7 +84,7 @@ on('GET', '/api/public/info', 'none', () => ({
   space_name: setting('space_name'), hours: setting('hours'), rooms: roomsList(false),
   prices: { mod4: setting('price_mod4'), mod8: setting('price_mod8'), hour: setting('price_hour') },
   rules: { renewal_day: setting('renewal_day'), reminder_days: setting('reminder_days'), hold_minutes: setting('hold_minutes'), cancel_hours: setting('cancel_hours'), min_notice_hours: setting('min_notice_hours'), horizon_days: setting('horizon_days'), max_hours: setting('max_hours_per_booking') },
-  allow_signup: !!setting('allow_signup'), renewal_day: setting('renewal_day'), simulated_payments: P.isSimulated(), today: U.todayStr(),
+  allow_signup: !!setting('allow_signup'), mod8_enabled: !!setting('mod8_enabled'), renewal_day: setting('renewal_day'), simulated_payments: P.isSimulated(), today: U.todayStr(),
 }));
 
 // ---------- configuração inicial (primeiro acesso) ----------
@@ -253,6 +253,7 @@ on('PUT', '/api/admin/settings', 'admin', (req, res, { user, body }) => {
     if ('renewal_day' in body) setSetting('renewal_day', n(body.renewal_day, 1, 28, 'dia limite de renovação'));
     if ('reminder_days' in body) setSetting('reminder_days', n(body.reminder_days, 0, 20, 'dias de lembrete'));
     if ('telegram_chat_id' in body) setSetting('telegram_chat_id', U.clean(body.telegram_chat_id, 40));
+    if ('mod8_enabled' in body) setSetting('mod8_enabled', !!body.mod8_enabled);
     if ('allow_signup' in body) setSetting('allow_signup', !!body.allow_signup);
     if ('admin_whatsapp' in body) { const p = body.admin_whatsapp ? U.normPhone(body.admin_whatsapp) : ''; if (body.admin_whatsapp && !p) throw new HttpError(400, 'WhatsApp da administração inválido.'); setSetting('admin_whatsapp', p || ''); }
     if ('base_url' in body) { const u = U.clean(body.base_url, 200).replace(/\/+$/, ''); if (u && !/^https?:\/\/[^\s]+$/.test(u)) throw new HttpError(400, 'Endereço (URL) inválido.'); setSetting('base_url', u); }
@@ -324,17 +325,60 @@ on('POST', '/api/admin/bookings/:id/refund-done', 'admin', (req, res, { user, pa
   db.prepare("UPDATE bookings SET refund_status='concluido', status=CASE WHEN status='refund_needed' THEN 'cancelled' ELSE status END, cancelled_at=COALESCE(cancelled_at,datetime('now')) WHERE id=?").run(b.id);
   audit(user.id, 'refund_done', b.id); return { ok: true };
 });
-on('POST', '/api/admin/blocks', 'admin', (req, res, { user, body }) => {
-  R.purgeExpired(); const room = R.roomOrThrow(body.room_id); const date = body.date; const hours = (Array.isArray(body.hours) ? body.hours : []).map(Number);
-  if (!U.isDate(date) || !hours.length) throw new HttpError(400, 'Escolha a data e os horários a bloquear.');
-  for (const h of hours) if (!R.hoursOf(date) || h < R.hoursOf(date)[0] || h >= R.hoursOf(date)[1]) throw new HttpError(400, 'Horário fora do funcionamento.');
-  const id = tx(() => {
-    const r = db.prepare("INSERT INTO bookings(user_id,room_id,type,amount_cents,status,meta) VALUES(?,?,'bloqueio',0,'paid',?)").run(user.id, room.id, JSON.stringify({ title: 'Bloqueio', detail: U.clean(body.reason, 100) || 'Horário bloqueado', reason: U.clean(body.reason, 100), slots: hours.map((h) => ({ date, hour: h })) }));
-    try { for (const h of hours) db.prepare('INSERT INTO slots(booking_id,room_id,date,hour) VALUES(?,?,?,?)').run(Number(r.lastInsertRowid), room.id, date, h); }
-    catch (e) { if (/UNIQUE/i.test(e.message)) throw new HttpError(409, 'Algum desses horários já está ocupado. Cancele a reserva antes.'); throw e; }
-    return Number(r.lastInsertRowid);
+// ---- Bloqueios de horário (gestão) ----
+function createBlocks(userId, o) {
+  R.purgeExpired();
+  const all = roomsList(false); const ids = o.room_ids === 'all' || !Array.isArray(o.room_ids) || !o.room_ids.length ? all.map((r) => r.id) : o.room_ids.map(Number);
+  const rooms = ids.map((id) => R.roomOrThrow(id));
+  const from = o.date_from; const to = o.date_to || o.date_from;
+  if (!U.isDate(from) || !U.isDate(to) || to < from) throw new HttpError(400, 'Período inválido.');
+  if (U.parseDate(to) - U.parseDate(from) > 366 * 864e5) throw new HttpError(400, 'O período máximo é de 1 ano.');
+  const hFrom = Number(o.hour_from); const hTo = Number(o.hour_to);
+  if (!(Number.isInteger(hFrom) && Number.isInteger(hTo) && hFrom >= 0 && hTo <= 24 && hFrom < hTo)) throw new HttpError(400, 'Faixa de horas inválida.');
+  const wds = (Array.isArray(o.weekdays) ? o.weekdays.map(Number) : []).filter((d) => d >= 0 && d <= 6); const days = wds.length ? wds : [0, 1, 2, 3, 4, 5, 6];
+  const reason = U.clean(o.reason, 100); const group = U.token(8); const params = { room_ids: ids, date_from: from, date_to: to, weekdays: days, hour_from: hFrom, hour_to: hTo };
+  let created = 0; const skipped = [];
+  tx(() => {
+    const has = db.prepare('SELECT 1 FROM slots WHERE room_id=? AND date=? AND hour=?');
+    for (let d = from < U.todayStr() ? U.todayStr() : from; d <= to; d = U.addDays(d, 1)) {
+      if (!days.includes(U.weekdayOf(d))) continue; const open = R.hoursOf(d); if (!open) continue;
+      for (const room of rooms) {
+        const hours = [];
+        for (let h = Math.max(hFrom, open[0]); h < Math.min(hTo, open[1]); h++) { if (has.get(room.id, d, h)) skipped.push(`${U.brDate(d)} ${U.hh(h)} · ${room.name}`); else hours.push(h); }
+        if (!hours.length) continue;
+        const r = db.prepare("INSERT INTO bookings(user_id,room_id,type,amount_cents,status,meta) VALUES(?,?,'bloqueio',0,'paid',?)")
+          .run(userId, room.id, JSON.stringify({ title: 'Bloqueio', detail: reason || 'Horário bloqueado', reason, group, params, slots: hours.map((h) => ({ date: d, hour: h })) }));
+        for (const h of hours) db.prepare('INSERT INTO slots(booking_id,room_id,date,hour) VALUES(?,?,?,?)').run(Number(r.lastInsertRowid), room.id, d, h);
+        created += hours.length;
+      }
+    }
   });
-  audit(user.id, 'block', `${date} ${hours.join(',')}`); return { id };
+  if (!created && !skipped.length) throw new HttpError(400, 'Nenhum horário de funcionamento dentro do período e dos dias escolhidos.');
+  audit(userId, 'block', `${group} ${from}..${to} ${created} horas`);
+  return { group, created, skipped_count: skipped.length, skipped: skipped.slice(0, 40) };
+}
+on('POST', '/api/admin/blocks', 'admin', (req, res, { user, body }) => createBlocks(user.id, body));
+on('GET', '/api/admin/blocks', 'admin', () => {
+  const today = U.todayStr(); const groups = new Map();
+  for (const b of db.prepare("SELECT * FROM bookings WHERE type='bloqueio' AND status='paid'").all().map(R.parseBooking)) {
+    const key = b.meta.group || `legacy-${b.id}`; const fut = b.meta.slots.filter((s) => s.date >= today); if (!fut.length) continue;
+    const g = groups.get(key) || { group: key, reason: b.meta.reason || '', params: b.meta.params || null, room_ids: new Set(), dates: [], hours: [], slots: 0 };
+    g.room_ids.add(b.room_id); for (const s of fut) { g.dates.push(s.date); g.hours.push(s.hour); } g.slots += fut.length; groups.set(key, g);
+  }
+  const names = Object.fromEntries(db.prepare('SELECT id,name FROM rooms').all().map((r) => [r.id, r.name]));
+  return { blocks: [...groups.values()].map((g) => ({ group: g.group, reason: g.reason, rooms: [...g.room_ids].map((id) => names[id]), date_from: g.dates.sort()[0], date_to: g.dates[g.dates.length - 1],
+    weekdays: g.params ? g.params.weekdays : null, hour_from: Math.min(...g.hours), hour_to: Math.max(...g.hours) + 1, slots: g.slots })).sort((a, b) => a.date_from.localeCompare(b.date_from)) };
+});
+on('POST', '/api/admin/blocks/:group/remove', 'admin', (req, res, { user, params }) => {
+  const key = params.group; let n = 0;
+  tx(() => {
+    for (const b of db.prepare("SELECT * FROM bookings WHERE type='bloqueio' AND status='paid'").all().map(R.parseBooking)) {
+      if ((b.meta.group || `legacy-${b.id}`) !== key) continue;
+      db.prepare("UPDATE bookings SET status='cancelled', cancelled_at=datetime('now'), cancel_reason='Desbloqueado' WHERE id=?").run(b.id);
+      db.prepare('DELETE FROM slots WHERE booking_id=?').run(b.id); n++;
+    }
+  });
+  if (!n) throw new HttpError(404, 'Bloqueio não encontrado.'); audit(user.id, 'unblock', key); return { ok: true };
 });
 on('GET', '/api/admin/agenda', 'admin', (req, res, { query }) => {
   R.purgeExpired(); const date = query.date; if (!U.isDate(date)) throw new HttpError(400, 'Data inválida.');
@@ -357,7 +401,7 @@ on('GET', '/api/admin/dashboard', 'admin', () => {
 });
 on('GET', '/api/admin/renewals', 'admin', (req) => {
   const r = R.renewalsList(); const link = P.baseUrl(req) + '/'; const nm = U.monthLabel(r.next); const dl = `${U.pad(r.renewal_day)}/${r.cur.slice(5)}`;
-  r.items = r.items.map((i) => ({ ...i, message: r.priority_open
+  r.items = r.items.map((i) => ({ ...i, message: i.discontinued ? '' : r.priority_open
     ? `Olá, ${i.user_name.split(' ')[0]}! Aqui é do ${setting('space_name')}. Seu módulo (${i.title}) vai até o fim do mês. Para garantir o mesmo horário em ${nm}, renove até ${dl} pelo aplicativo (botão "Renovar" em Minhas reservas): ${link} Depois dessa data o horário é liberado para outros profissionais.`
     : `Olá, ${i.user_name.split(' ')[0]}! Aqui é do ${setting('space_name')}. O prazo de prioridade para renovar seu módulo (${i.title}) já passou (${dl}). Se quiser manter o horário em ${nm}, renove o quanto antes pelo aplicativo, antes que outro profissional reserve: ${link}` }));
   return r;

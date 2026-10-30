@@ -65,3 +65,9 @@ Em *Configurações > Aviso no Telegram*: crie um robô com @BotFather, informe 
 
 ## Próximos atendimentos
 Menu **Próximos**: lista por dia de todas as reservas pagas (7, 14 ou 30 dias), com botão de imprimir. O Painel mostra também "Hoje" e "Amanhã".
+
+## Bloqueios de horário (v1.3)
+Menu **Bloqueios**: escolha a sala (ou todas), o período, os dias da semana e a faixa de horas; informe o motivo. Horários que já têm reserva são pulados e listados. A lista de bloqueios ativos tem o botão **Desbloquear**. Na **Agenda**, tocar num horário livre bloqueia aquele horário, e tocar num horário bloqueado o libera.
+
+## Módulo de 8 horas
+Vem **desligado**. Em *Configurações > Valores* há a opção "Oferecer o módulo de 8 horas": desligado, ele some das telas do profissional e não pode ser contratado nem renovado (módulos já pagos valem até o fim do período).

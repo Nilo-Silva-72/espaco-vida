@@ -62,7 +62,7 @@ async function render() {
   if (!S.user) return viewAuth(app);
   const r = route(); const admin = S.user.role === 'admin';
   const nav = admin
-    ? [['', 'Painel'], ['agenda', 'Agenda'], ['reservas', 'Reservas'], ['proximos', 'Próximos'], ['renovacoes', 'Renovações'], ['profissionais', 'Profissionais'], ['comprovantes', 'Comprovantes'], ['divulgar', 'Divulgar'], ['config', 'Configurações']].map(([k, l]) => [k ? '/admin/' + k : '/admin', l, k])
+    ? [['', 'Painel'], ['agenda', 'Agenda'], ['bloqueios', 'Bloqueios'], ['reservas', 'Reservas'], ['proximos', 'Próximos'], ['renovacoes', 'Renovações'], ['profissionais', 'Profissionais'], ['comprovantes', 'Comprovantes'], ['divulgar', 'Divulgar'], ['config', 'Configurações']].map(([k, l]) => [k ? '/admin/' + k : '/admin', l, k])
     : [['/', 'Início', ''], ['/agendar', 'Agendar', 'agendar'], ['/reservas', 'Minhas reservas', 'reservas'], ['/perfil', 'Meu perfil', 'perfil']];
   const cur = admin ? (r[0] === 'admin' ? r[1] || '' : null) : r[0] || '';
   if (admin && r[0] !== 'admin') { location.hash = '#/admin'; return; }
@@ -71,7 +71,7 @@ async function render() {
   <nav class="nav" aria-label="Menu">${nav.map(([h, l, k]) => `<a href="#${h}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><main id="view"></main><p class="muted small center noprint" style="margin:0 0 90px">Versão ${esc(S.info.version)}</p>`;
   const v = $('#view');
   try {
-    if (admin) { const p = r[1] || ''; await ({ '': aDash, agenda: aAgenda, proximos: aUpcoming, renovacoes: aRenewals, reservas: aBookings, profissionais: aUsers, comprovantes: aNotifs, divulgar: aShare, config: aConfig }[p] || aDash)(v); }
+    if (admin) { const p = r[1] || ''; await ({ '': aDash, agenda: aAgenda, bloqueios: aBlocks, proximos: aUpcoming, renovacoes: aRenewals, reservas: aBookings, profissionais: aUsers, comprovantes: aNotifs, divulgar: aShare, config: aConfig }[p] || aDash)(v); }
     else { const p = r[0] || ''; if (p === 'pagamento') await uPay(v, r[1]); else await ({ '': uHome, agendar: uBook, reservas: uBookings, perfil: uProfile }[p] || uHome)(v); }
   } catch (e) { v.innerHTML = `<div class="alert bad">${esc(e.message)}</div>`; }
 }
@@ -155,7 +155,7 @@ async function uHome(v) {
   v.innerHTML = `<div class="hero"><h1>Olá, ${esc(S.user.name.split(' ')[0])}!</h1><p>Reserve sua sala em poucos toques. Pagou, está confirmado — e o comprovante chega no seu WhatsApp.</p><a class="btn gold" href="#/agendar" style="margin-top:8px">Agendar horário</a></div>
   ${renBanner}${pend.length ? `<div class="alert">Você tem ${pend.length} reserva(s) aguardando pagamento. O horário só fica garantido após o pagamento.</div>${pend.map((b) => bookingCard(b)).join('')}` : ''}
   <h2>Próximos atendimentos</h2>${up.length ? up.slice(0, 6).map((b) => bookingCard(b)).join('') : '<div class="card flat muted">Você ainda não tem horários reservados.</div>'}
-  <div class="card"><h3>Valores</h3><div class="price-row"><span>Hora avulsa</span><b>${brl(p.hour)}</b></div><div class="price-row"><span>Módulo 4 horas (1 dia/semana, por mês)</span><b>${brl(p.mod4)}</b></div><div class="price-row"><span>Módulo 8 horas (1 dia/semana, por mês)</span><b>${brl(p.mod8)}</b></div><p class="muted small">Funcionamento: ${hoursSummary(S.info.hours)}</p></div>`;
+  <div class="card"><h3>Valores</h3><div class="price-row"><span>Hora avulsa</span><b>${brl(p.hour)}</b></div><div class="price-row"><span>Módulo 4 horas (1 dia/semana, por mês)</span><b>${brl(p.mod4)}</b></div>${S.info.mod8_enabled ? `<div class="price-row"><span>Módulo 8 horas (1 dia/semana, por mês)</span><b>${brl(p.mod8)}</b></div>` : ''}<p class="muted small">Funcionamento: ${hoursSummary(S.info.hours)}</p></div>`;
   bindCancel(v, render);
 }
 async function uBookings(v) {
@@ -178,6 +178,7 @@ async function uBook(v) {
   const rooms = S.info.rooms; if (!rooms.length) { v.innerHTML = '<div class="alert">Nenhuma sala disponível no momento.</div>'; return; }
   const w = S.wz || (S.wz = { type: null, room_id: rooms[0].id, cart: [], date: null, month: null, weekday: null, start: null, opts: null });
   if (!rooms.find((r) => r.id === w.room_id)) w.room_id = rooms[0].id;
+  if (w.type === 'mod8' && !S.info.mod8_enabled) w.type = null;
   const p = S.info.prices; const today = S.info.today;
   const months = [0, 1].map((i) => { const [y, m] = today.slice(0, 7).split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + i, 1)); return d.toISOString().slice(0, 7); });
   async function draw() {
@@ -205,7 +206,7 @@ async function uBook(v) {
     <h3 style="margin-top:16px">O que você precisa?</h3><div class="types">
     <button class="type ${w.type === 'avulsa' ? 'on' : ''}" data-type="avulsa"><b>Hora avulsa</b><div class="p">${brl(p.hour)}<small class="muted"> / hora</small></div><span class="muted small">Escolha horas soltas, nos dias que quiser.</span></button>
     <button class="type ${w.type === 'mod4' ? 'on' : ''}" data-type="mod4"><b>Módulo 4 horas</b><div class="p">${brl(p.mod4)}<small class="muted"> / mês</small></div><span class="muted small">4 horas seguidas, 1 dia fixo por semana.</span></button>
-    <button class="type ${w.type === 'mod8' ? 'on' : ''}" data-type="mod8"><b>Módulo 8 horas</b><div class="p">${brl(p.mod8)}<small class="muted"> / mês</small></div><span class="muted small">8 horas seguidas, 1 dia fixo por semana.</span></button></div>
+    ${S.info.mod8_enabled ? `<button class="type ${w.type === 'mod8' ? 'on' : ''}" data-type="mod8"><b>Módulo 8 horas</b><div class="p">${brl(p.mod8)}<small class="muted"> / mês</small></div><span class="muted small">8 horas seguidas, 1 dia fixo por semana.</span></button>` : ''}</div>
     <div style="margin-top:18px">${body}</div>${bar}`;
   }
   const redraw = () => draw().catch(fail);
@@ -289,16 +290,16 @@ async function aAgenda(v) {
     const ag = await api('GET', `/api/admin/agenda?date=${date}`); const rooms = ag.rooms;
     const map = {}; for (const s of ag.slots) map[`${s.room_id}|${s.hour}`] = s;
     v.innerHTML = `<h1>Agenda</h1><div class="row" style="margin-bottom:12px"><button class="btn sm ghost" data-d="-1">‹</button><input type="date" id="dt" value="${date}" style="max-width:170px"><button class="btn sm ghost" data-d="1">›</button><button class="btn sm ghost" data-d="0">Hoje</button><span class="muted">${WDF[wdOf(date)]}</span></div>
-    ${ag.open ? `<div class="agenda" style="grid-template-columns:62px repeat(${rooms.length},1fr)"><div class="h">Hora</div>${rooms.map((r) => `<div class="h">${esc(r.name)}</div>`).join('')}${Array.from({ length: ag.open[1] - ag.open[0] }, (_, i) => ag.open[0] + i).map((h) => `<div class="t">${hh(h)}</div>${rooms.map((r) => { const s = map[`${r.id}|${h}`]; return s ? `<button class="c ${s.type === 'bloqueio' ? 'block' : s.status === 'pending' ? 'pend' : 'busy'}" data-b="${s.booking_id}" data-n="${esc(s.user_name)}" data-t="${esc(s.title)}" data-s="${s.status}">${esc(s.user_name.split(' ')[0])}${s.status === 'pending' ? ' ⏳' : ''}<br><span class="muted">${esc(s.title.replace('Módulo ', 'Mód. ').slice(0, 22))}</span></button>` : `<button class="c free" data-free="${r.id}|${h}" aria-label="Horário livre"></button>`; }).join('')}`).join('')}</div>
+    ${ag.open ? `<div class="agenda" style="grid-template-columns:62px repeat(${rooms.length},1fr)"><div class="h">Hora</div>${rooms.map((r) => `<div class="h">${esc(r.name)}</div>`).join('')}${Array.from({ length: ag.open[1] - ag.open[0] }, (_, i) => ag.open[0] + i).map((h) => `<div class="t">${hh(h)}</div>${rooms.map((r) => { const s = map[`${r.id}|${h}`]; return s ? `<button class="c ${s.type === 'bloqueio' ? 'block' : s.status === 'pending' ? 'pend' : 'busy'}" data-ty="${s.type}" data-b="${s.booking_id}" data-n="${esc(s.user_name)}" data-t="${esc(s.title)}" data-s="${s.status}">${esc(s.user_name.split(' ')[0])}${s.status === 'pending' ? ' ⏳' : ''}<br><span class="muted">${esc(s.title.replace('Módulo ', 'Mód. ').slice(0, 22))}</span></button>` : `<button class="c free" data-free="${r.id}|${h}" aria-label="Horário livre"></button>`; }).join('')}`).join('')}</div>
     <p class="muted small">Verde: pago · Amarelo: aguardando pagamento · Cinza: bloqueado · Toque num horário livre para bloquear.</p>` : '<div class="card muted">Espaço fechado neste dia.</div>'}`;
   }
   v.addEventListener('click', (e) => {
     const t = e.target.closest('button'); if (!t) return; const d = t.dataset;
     if (d.d !== undefined) { date = d.d === '0' ? S.info.today : addDays(date, +d.d); draw().catch(fail); }
-    else if (d.b) modal(`<h3>${esc(d.n)}</h3><p>${esc(d.t)}</p><p>${badge({ status: d.s })}</p><div class="row"><a class="btn sm ghost" href="#/admin/reservas" data-close>Ver em Reservas</a><button class="btn sm danger" id="cx">Cancelar reserva</button><button class="btn sm ghost" data-close>Fechar</button></div>`,
-      (m, close) => $('#cx', m).addEventListener('click', (ev) => { if (!confirm('Cancelar esta reserva? Se estiver paga, ficará um reembolso pendente.')) return; busy(ev.target, async () => { await api('POST', `/api/bookings/${d.b}/cancel`, { reason: 'Cancelado pela gestão' }); close(); toast('Reserva cancelada.'); draw(); }); }));
+    else if (d.b) modal(d.ty === 'bloqueio' ? `<h3>Horário bloqueado</h3><p>Este horário está bloqueado para agendamentos. O botão libera só este dia e esta sala; para desfazer um bloqueio inteiro, use o menu Bloqueios.</p><div class="row"><button class="btn sm danger" id="cx">Desbloquear</button><button class="btn sm ghost" data-close>Fechar</button></div>` : `<h3>${esc(d.n)}</h3><p>${esc(d.t)}</p><p>${badge({ status: d.s })}</p><div class="row"><a class="btn sm ghost" href="#/admin/reservas" data-close>Ver em Reservas</a><button class="btn sm danger" id="cx">Cancelar reserva</button><button class="btn sm ghost" data-close>Fechar</button></div>`,
+      (m, close) => $('#cx', m).addEventListener('click', (ev) => { if (d.ty !== 'bloqueio' && !confirm('Cancelar esta reserva? Se estiver paga, ficará um reembolso pendente.')) return; busy(ev.target, async () => { await api('POST', `/api/bookings/${d.b}/cancel`, { reason: 'Cancelado pela gestão' }); close(); toast('Reserva cancelada.'); draw(); }); }));
     else if (d.free) { const [room, hour] = d.free.split('|'); modal(`<h3>Bloquear ${brDate(date)} às ${hh(+hour)}</h3><p class="muted small">Impede agendamentos neste horário (manutenção, uso próprio, etc.).</p><label>Motivo</label><input id="why" placeholder="Ex.: manutenção"><div class="row" style="margin-top:14px"><button class="btn grow" id="bk">Bloquear</button><button class="btn ghost" data-close>Voltar</button></div>`,
-      (m, close) => $('#bk', m).addEventListener('click', (ev) => busy(ev.target, async () => { await api('POST', '/api/admin/blocks', { room_id: +room, date, hours: [+hour], reason: $('#why', m).value }); close(); toast('Horário bloqueado.'); draw(); }))); }
+      (m, close) => $('#bk', m).addEventListener('click', (ev) => busy(ev.target, async () => { await api('POST', '/api/admin/blocks', { room_ids: [+room], date_from: date, date_to: date, hour_from: +hour, hour_to: +hour + 1, reason: $('#why', m).value }); close(); toast('Horário bloqueado.'); draw(); }))); }
   });
   v.addEventListener('change', (e) => { if (e.target.id === 'dt' && e.target.value) { date = e.target.value; draw().catch(fail); } });
   await draw();
@@ -346,6 +347,24 @@ async function aUsers(v) {
   });
   await draw();
 }
+async function aBlocks(v) {
+  const { blocks } = await api('GET', '/api/admin/blocks'); const rooms = S.info.rooms; const t = S.info.today;
+  const wdTxt = (w) => (!w || w.length === 7 ? 'todos os dias' : w.map((x) => WD[x]).join(', '));
+  v.innerHTML = `<h1>Bloqueios de horário</h1><p class="muted">Impedem agendamentos em horários que você precisa para si: manutenção, limpeza, feriados, uso próprio, etc. Horários que já têm reserva não são alterados.</p>
+  <form id="bf" class="card"><h3>Novo bloqueio</h3><div class="grid g2"><div><label>Sala</label><select name="room"><option value="all">Todas as salas</option>${rooms.map((r) => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</select></div><div><label>Motivo (só você vê)</label><input name="reason" placeholder="Ex.: manutenção, feriado"></div>
+  <div><label>De (data)</label><input type="date" name="date_from" min="${t}" value="${t}" required></div><div><label>Até (data)</label><input type="date" name="date_to" min="${t}" value="${t}" required></div>
+  <div><label>Das</label><select name="hour_from">${hourOpts(8, 0, 23)}</select></div><div><label>Até (fim do bloqueio)</label><select name="hour_to">${hourOpts(20, 1, 24)}</select></div></div>
+  <label>Dias da semana <span class="muted small">(nenhum marcado = todos os dias do período)</span></label><div class="row">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<label style="margin:0;display:flex;gap:6px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 10px"><input type="checkbox" data-wd="${d}"> ${WD[d]}</label>`).join('')}</div>
+  <button class="btn block" style="margin-top:16px">Bloquear</button></form>
+  <h2>Bloqueios ativos</h2>${blocks.length ? blocks.map((b) => `<div class="card flat" style="margin:0 0 12px"><div class="row between"><div><b>${esc(b.reason || 'Sem motivo informado')}</b><div class="muted small">${esc(b.rooms.join(', '))} · ${brDate(b.date_from)}${b.date_to !== b.date_from ? ' a ' + brDate(b.date_to) : ''} · ${wdTxt(b.weekdays)} · ${hh(b.hour_from)}–${hh(b.hour_to)} · ${b.slots} hora(s)</div></div><button class="btn sm danger" data-unblock="${b.group}">Desbloquear</button></div></div>`).join('') : '<div class="card flat muted">Nenhum bloqueio ativo.</div>'}`;
+  $('#bf').addEventListener('submit', (ev) => { ev.preventDefault(); busy(ev.submitter, async () => {
+    const f = formData(ev.target); const weekdays = [...v.querySelectorAll('[data-wd]:checked')].map((c) => +c.dataset.wd);
+    const r = await api('POST', '/api/admin/blocks', { room_ids: f.room === 'all' ? 'all' : [+f.room], date_from: f.date_from, date_to: f.date_to, weekdays, hour_from: +f.hour_from, hour_to: +f.hour_to, reason: f.reason });
+    if (r.skipped_count) await new Promise((ok) => modal(`<h3>Bloqueio criado com avisos</h3><p>${r.created} hora(s) bloqueada(s). <b>${r.skipped_count} horário(s) não foram bloqueados</b> porque já têm reserva:</p><div class="pix" style="max-height:160px">${r.skipped.map(esc).join('<br>')}${r.skipped_count > r.skipped.length ? '<br>…' : ''}</div><p class="muted small">Para liberar esses horários, cancele a reserva em Reservas e repita o bloqueio.</p><button class="btn block" data-close>Entendi</button>`, (m) => m.querySelector('[data-close]').addEventListener('click', ok)));
+    else toast(`${r.created} hora(s) bloqueada(s).`);
+    render(); }); });
+  v.addEventListener('click', (e) => { const u = e.target.closest('[data-unblock]'); if (u && confirm('Desbloquear estes horários? Eles voltam a ficar disponíveis para agendamento.')) busy(u, async () => { await api('POST', `/api/admin/blocks/${u.dataset.unblock}/remove`, {}); toast('Horários liberados.'); render(); }); });
+}
 async function aUpcoming(v) {
   let days = 14;
   async function draw() {
@@ -360,8 +379,8 @@ async function aRenewals(v) {
   const r = await api('GET', '/api/admin/renewals'); const nm = monthLabel(r.next);
   v.innerHTML = `<h1>Renovações de módulos</h1><div class="alert ${r.priority_open ? 'ok' : ''}">${r.priority_open ? `Prioridade de renovação aberta até o dia <b>${r.renewal_day}</b>. Até lá, os horários de ${nm} ligados a módulos atuais só podem ser renovados por quem os tem.` : `O prazo de prioridade (dia ${r.renewal_day}) já passou: horários não renovados estão liberados para todos.`} Os lembretes começam no dia ${r.reminder_from}.</div>
   <div class="card"><div class="tablewrap"><table><thead><tr><th>Profissional</th><th>Módulo atual</th><th>Renovação (${nm})</th><th></th></tr></thead><tbody>${r.items.map((i) => `<tr><td><b>${esc(i.user_name)}</b><div class="muted small">${esc(i.specialty || '')}<br>${esc(fmtPhone(i.user_phone))}</div></td><td>${esc(i.title)}<div class="muted small">${esc(i.room)}</div></td>
-  <td>${i.renewed ? '<span class="badge">Renovado ✔</span>' : i.awaiting_payment ? '<span class="badge pending">Aguardando pagamento</span>' : '<span class="badge bad">Não renovou</span>'}</td>
-  <td>${i.renewed ? '' : `<a class="btn sm" target="_blank" rel="noopener" href="${waLink(i.user_phone, i.message)}">Lembrar no WhatsApp</a>`}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Nenhum módulo ativo neste mês.</td></tr>'}</tbody></table></div></div>
+  <td>${i.discontinued ? '<span class="badge grey">Módulo 8h descontinuado</span>' : i.renewed ? '<span class="badge">Renovado ✔</span>' : i.awaiting_payment ? '<span class="badge pending">Aguardando pagamento</span>' : '<span class="badge bad">Não renovou</span>'}</td>
+  <td>${i.renewed || i.discontinued ? '' : `<a class="btn sm" target="_blank" rel="noopener" href="${waLink(i.user_phone, i.message)}">Lembrar no WhatsApp</a>`}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Nenhum módulo ativo neste mês.</td></tr>'}</tbody></table></div></div>
   <p class="muted small">O botão abre o WhatsApp com a mensagem pronta; é só tocar em enviar.</p>`;
 }
 async function aNotifs(v) {
@@ -391,7 +410,8 @@ async function aConfig(v) {
   <label>Endereço público do aplicativo (usado nos links dos comprovantes)</label><input name="base_url" value="${esc(s.base_url)}" placeholder="https://agenda.seudominio.com.br">
   <label style="display:flex;gap:8px;align-items:center;margin-top:14px"><input type="checkbox" name="allow_signup" ${s.allow_signup ? 'checked' : ''}> Permitir que novos profissionais criem o próprio perfil</label></div>
   <div class="card"><h2>Horário de funcionamento</h2>${[1, 2, 3, 4, 5, 6, 0].map(hrow).join('')}</div>
-  <div class="card"><h2>Valores</h2><div class="grid g3"><div><label>Módulo 4 horas (mês)</label><input name="price_mod4" inputmode="decimal" value="${fromCents(s.price_mod4)}"></div><div><label>Módulo 8 horas (mês)</label><input name="price_mod8" inputmode="decimal" value="${fromCents(s.price_mod8)}"></div><div><label>Hora avulsa</label><input name="price_hour" inputmode="decimal" value="${fromCents(s.price_hour)}"></div></div></div>
+  <div class="card"><h2>Valores</h2><div class="grid g3"><div><label>Módulo 4 horas (mês)</label><input name="price_mod4" inputmode="decimal" value="${fromCents(s.price_mod4)}"></div><div><label>Módulo 8 horas (mês)</label><input name="price_mod8" inputmode="decimal" value="${fromCents(s.price_mod8)}"></div><div><label>Hora avulsa</label><input name="price_hour" inputmode="decimal" value="${fromCents(s.price_hour)}"></div></div>
+  <label style="display:flex;gap:8px;align-items:center;margin-top:14px"><input type="checkbox" name="mod8_enabled" ${s.mod8_enabled ? 'checked' : ''}> Oferecer o módulo de 8 horas para novas reservas</label><p class="muted small">Desligado: o módulo some das telas do profissional e não pode mais ser contratado nem renovado. Módulos de 8h já pagos continuam valendo até o fim do período.</p></div>
   <div class="card"><h2>Regras para o profissional</h2><div class="grid g2"><div><label>Prazo para pagar (minutos)</label><input type="number" name="hold_minutes" value="${s.hold_minutes}"></div><div><label>Antecedência mínima para agendar (horas)</label><input type="number" name="min_notice_hours" value="${s.min_notice_hours}"></div><div><label>Cancelamento de hora avulsa até (horas antes)</label><input type="number" name="cancel_hours" value="${s.cancel_hours}"></div><div><label>Agendar até (dias à frente)</label><input type="number" name="horizon_days" value="${s.horizon_days}"></div><div><label>Máximo de horas avulsas por pedido</label><input type="number" name="max_hours_per_booking" value="${s.max_hours_per_booking}"></div></div>
   <p class="muted small">O profissional só consegue: ver horários livres, reservar, pagar, ver/cancelar as próprias reservas (módulos pagos só a gestão cancela) e editar o próprio perfil.</p></div>
   <div class="card"><h2>Renovação de módulos</h2><div class="grid g2"><div><label>Prioridade de renovação até o dia</label><input type="number" min="1" max="28" name="renewal_day" value="${s.renewal_day}"></div><div><label>Lembrete começa quantos dias antes</label><input type="number" min="0" max="20" name="reminder_days" value="${s.reminder_days}"></div></div>
@@ -411,7 +431,7 @@ async function aConfig(v) {
   applyMasks(v);
   $('#cf').addEventListener('submit', (ev) => { ev.preventDefault(); busy(ev.submitter, async () => {
     const f = formData(ev.target); const hours = {}; for (let d = 0; d <= 6; d++) hours[d] = $(`[data-open="${d}"]`).checked ? [+$(`[data-from="${d}"]`).value, +$(`[data-to="${d}"]`).value] : null;
-    const body = { ...f, renewal_day: +f.renewal_day, reminder_days: +f.reminder_days, hours, allow_signup: $('[name=allow_signup]').checked, price_mod4: toCents(f.price_mod4), price_mod8: toCents(f.price_mod8), price_hour: toCents(f.price_hour) };
+    const body = { ...f, renewal_day: +f.renewal_day, reminder_days: +f.reminder_days, hours, allow_signup: $('[name=allow_signup]').checked, mod8_enabled: $('[name=mod8_enabled]').checked, price_mod4: toCents(f.price_mod4), price_mod8: toCents(f.price_mod8), price_hour: toCents(f.price_hour) };
     ['hold_minutes', 'min_notice_hours', 'cancel_hours', 'horizon_days', 'max_hours_per_booking'].forEach((k) => (body[k] = +body[k]));
     await api('PUT', '/api/admin/settings', body); S.info = await api('GET', '/api/public/info'); toast('Configurações salvas.'); render(); }); });
   v.addEventListener('click', (e) => { const tg = e.target.closest('[data-tgtest]'); if (tg) return busy(tg, async () => { await api('POST', '/api/admin/telegram-test', {}); toast('Mensagem enviada! Veja no seu Telegram.'); });

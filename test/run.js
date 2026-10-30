@@ -63,6 +63,8 @@ server.listen(0, async () => {
     const page = await anon('GET', `/r/${code}`); assert.equal(page.status, 200); assert.match(page.body, /R\$\s?140,00/);
   });
   await t('módulo 4h: R$ 400 no mês cheio, um dia por semana', async () => {
+    assert.equal((await ana('POST', '/api/bookings/quote', { type: 'mod8', room_id: 2, month: U.todayStr().slice(0, 7), weekday: 3, start_hour: 8 })).status, 400, 'módulo 8h vem desligado');
+    await adm('PUT', '/api/admin/settings', { mod8_enabled: true });
     const month = U.fmtDate(new Date(Date.UTC(+U.todayStr().slice(0, 4), +U.todayStr().slice(5, 7), 1))).slice(0, 7); // próximo mês
     const q = await ana('POST', '/api/bookings/quote', { type: 'mod4', room_id: 2, month, weekday: 3, start_hour: 8 });
     assert.equal(q.status, 200); assert.equal(q.body.quote.amount, 40000); assert.equal(q.body.quote.slots, 4 * U.datesOfWeekdayInMonth(month, 3).length);
@@ -95,7 +97,7 @@ server.listen(0, async () => {
     assert.equal((await ana('POST', `/api/bookings/${c.body.booking.id}/simulate-pay`, {})).body.booking.status, 'paid', 'horário ainda livre: confirma');
   });
   await t('gestor: bloqueio, agenda, dashboard, usuários e configurações', async () => {
-    const d = nextWeekday(5, 5); assert.equal((await adm('POST', '/api/admin/blocks', { room_id: 1, date: d, hours: [8, 9], reason: 'Manutenção' })).status, 200);
+    const d = nextWeekday(5, 5); assert.equal((await adm('POST', '/api/admin/blocks', { room_ids: [1], date_from: d, date_to: d, hour_from: 8, hour_to: 10, reason: 'Manutenção' })).status, 200);
     assert.equal((await ana('POST', '/api/bookings/quote', { type: 'avulsa', room_id: 1, slots: [{ date: d, hour: 8 }] })).status, 409);
     assert.equal((await adm('GET', `/api/admin/agenda?date=${d}`)).body.slots.length, 2);
     const dash = (await adm('GET', '/api/admin/dashboard')).body; assert.ok(dash.revenue >= 14000 + 40000);
