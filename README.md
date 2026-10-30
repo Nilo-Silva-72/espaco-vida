@@ -71,3 +71,6 @@ Menu **Bloqueios**: escolha a sala (ou todas), o período, os dias da semana e a
 
 ## Módulo de 8 horas
 Vem **desligado**. Em *Configurações > Valores* há a opção "Oferecer o módulo de 8 horas": desligado, ele some das telas do profissional e não pode ser contratado nem renovado (módulos já pagos valem até o fim do período).
+
+## Identidade visual (v1.4)
+Logo do Espaço Vida aplicada (login, topo, ícone do aplicativo e comprovante) e cores azul turquesa e azul claro. Arquivos em `public/`: `logo.png` (completa), `mark.png` (símbolo) e `icon-*.png`.

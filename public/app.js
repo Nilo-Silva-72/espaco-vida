@@ -67,7 +67,7 @@ async function render() {
   const cur = admin ? (r[0] === 'admin' ? r[1] || '' : null) : r[0] || '';
   if (admin && r[0] !== 'admin') { location.hash = '#/admin'; return; }
   if (!admin && r[0] === 'admin') { location.hash = '#/'; return; }
-  app.innerHTML = `<header class="topbar"><div class="brand"><img src="/icon.svg" alt="">${esc(S.info.space_name)}${admin ? ' <span class="badge" style="background:#ffffff33;color:#fff">Gestão</span>' : ''}</div><button data-act="logout">Sair</button></header>
+  app.innerHTML = `<header class="topbar"><div class="brand"><img src="/mark.png" alt="">${esc(S.info.space_name)}${admin ? ' <span class="badge" style="background:#ffffff33;color:#fff">Gestão</span>' : ''}</div><button data-act="logout">Sair</button></header>
   <nav class="nav" aria-label="Menu">${nav.map(([h, l, k]) => `<a href="#${h}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><main id="view"></main><p class="muted small center noprint" style="margin:0 0 90px">Versão ${esc(S.info.version)}</p>`;
   const v = $('#view');
   try {
@@ -81,7 +81,7 @@ document.addEventListener('click', async (e) => {
 });
 
 // ===== Configuração inicial e login =====
-function logoBlock() { return `<div class="logo"><img src="/icon.svg" alt=""><div><h1 style="margin:0">${esc(S.info.space_name)}</h1><div class="muted small">Agenda de salas e módulos</div></div></div>`; }
+function logoBlock() { return `<div class="brandpanel"><img src="/logo.png" alt="${esc(S.info.space_name)}"></div>`; }
 function viewSetup(app) {
   const defHours = { 0: null, 1: [8, 20], 2: [8, 20], 3: [8, 20], 4: [8, 20], 5: [8, 20], 6: [9, 13] };
   app.innerHTML = `<div class="auth" style="max-width:640px">${logoBlock()}<div class="alert ok" style="margin-top:14px"><b>Bem-vinda(o)!</b> Vamos configurar o aplicativo do zero. Leva 2 minutos e tudo pode ser alterado depois em <i>Configurações</i>.</div>
